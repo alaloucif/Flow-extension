@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Flow — Blocked</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="blocked.css"/>
+</head>
+<body>
+  <main class="page">
+
+    <!-- FOCUS blocked -->
+    <div class="card" id="focus-card">
+      <div class="timer-row">
+        <span class="t-dot" id="chip-dot"></span>
+        <span class="t-mode" id="chip-mode">FOCUS</span>
+        <span class="t-time" id="chip-time">--:--</span>
+        <span class="t-label">remaining</span>
+      </div>
+      <div class="card-tag">Flow · Focus Mode</div>
+      <h1 class="title">Stay Focused</h1>
+      <p class="site-label">You tried to open <strong id="focus-site">—</strong></p>
+      <div class="quote-box">
+        <p id="focus-quote"></p>
+      </div>
+      <button class="btn-back" id="btn-back">← Go Back</button>
+    </div>
+
+    <!-- DOOMSCROLL blocked -->
+    <div class="card hidden" id="doom-card">
+      <div class="punish-box">
+        <p class="punish-label">Blocked for</p>
+        <p class="punish-time" id="punish-time">--:--</p>
+      </div>
+      <div class="card-tag">Flow · Doomscroll Limit</div>
+      <h1 class="title">Time's up on <span id="doom-site">—</span></h1>
+      <p class="doom-sub">You hit your scroll limit. Take a real break.</p>
+      <div class="quote-box">
+        <p id="doom-quote"></p>
+      </div>
+      <p class="doom-note">Resets automatically when the timer ends.</p>
+    </div>
+
+  </main>
+  <script src="blocked.js"></script>
+</body>
+</html>

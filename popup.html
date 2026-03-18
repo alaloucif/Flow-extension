@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Flow</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="popup.css"/>
+</head>
+<body>
+
+  <!-- ── TABS ── -->
+  <nav class="nav">
+    <div class="nav-pill" id="nav-pill"></div>
+    <button class="nav-item active" data-tab="focus">Focus</button>
+    <button class="nav-item" data-tab="blocker">Blocker</button>
+    <button class="nav-item" data-tab="screentime">Screen Time</button>
+    <button class="nav-item" data-tab="stats">Stats</button>
+  </nav>
+
+  <!-- ════ FOCUS ════ -->
+  <section class="panel active" id="panel-focus">
+
+    <div class="timer-stage">
+      <svg class="ring-svg" viewBox="0 0 200 200">
+        <defs>
+          <linearGradient id="gFocus" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#84C0E9"/>
+            <stop offset="100%" stop-color="#3F6D85"/>
+          </linearGradient>
+          <linearGradient id="gBreak" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#6DB89A"/>
+            <stop offset="100%" stop-color="#3F8567"/>
+          </linearGradient>
+        </defs>
+        <circle class="ring-bg"  cx="100" cy="100" r="84"/>
+        <circle class="ring-arc" id="ring-progress" cx="100" cy="100" r="84"
+          stroke-dasharray="527.8" stroke-dashoffset="527.8"/>
+      </svg>
+      <div class="timer-face">
+        <div class="timer-badge" id="timer-badge">FOCUS</div>
+        <div class="timer-num"   id="timer-digits">25:00</div>
+        <div class="timer-pips"  id="timer-pips"></div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn-primary" id="btn-start">Start Session</button>
+      <button class="btn-danger hidden" id="btn-stop">End Session</button>
+    </div>
+
+    <div class="card row-card">
+      <div class="row-info">
+        <span class="row-title">Strict Mode</span>
+        <span class="row-sub">Cannot be stopped once started</span>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="strict-toggle"/>
+        <span class="track"><span class="thumb"></span></span>
+      </label>
+    </div>
+
+    <div class="card">
+      <div class="slider-row">
+        <div class="slider-header">
+          <span class="slider-label">Focus</span>
+          <span class="slider-readout" id="focus-val-display"><span id="focus-val">25</span><span class="slider-unit">min</span></span>
+        </div>
+        <div class="slider-shell" id="focus-shell">
+          <div class="slider-tooltip hidden" id="focus-tooltip">25 min</div>
+          <div class="slider-track-wrap">
+            <div class="slider-fill" id="focus-fill"></div>
+            <input class="slider" id="focus-slider" type="range" min="5" max="120" step="5" value="25"
+                   aria-label="Focus duration" aria-valuemin="5" aria-valuemax="120" aria-valuenow="25"/>
+          </div>
+        </div>
+      </div>
+      <div class="divider"></div>
+      <div class="slider-row">
+        <div class="slider-header">
+          <span class="slider-label">Break</span>
+          <span class="slider-readout" id="break-val-display"><span id="break-val">5</span><span class="slider-unit">min</span></span>
+        </div>
+        <div class="slider-shell" id="break-shell">
+          <div class="slider-tooltip hidden" id="break-tooltip">5 min</div>
+          <div class="slider-track-wrap">
+            <div class="slider-fill" id="break-fill"></div>
+            <input class="slider" id="break-slider" type="range" min="1" max="30" step="1" value="5"
+                   aria-label="Break duration" aria-valuemin="1" aria-valuemax="30" aria-valuenow="5"/>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ════ BLOCKER ════ -->
+  <section class="panel" id="panel-blocker">
+
+    <p class="eyebrow">Blocked Sites</p>
+    <div class="card" id="blocklist-card">
+      <div class="lock-bar hidden" id="lock-banner">
+        <span>🔒</span>
+        <span>Locked while focus is active</span>
+      </div>
+      <div class="add-row" id="add-field">
+        <input class="text-input" id="site-input" type="text"
+               placeholder="e.g. twitter.com" autocomplete="off" spellcheck="false"/>
+        <button class="btn-add" id="btn-add-site">Add</button>
+      </div>
+      <div class="divider" id="add-sep"></div>
+      <ul class="site-list" id="site-list"></ul>
+      <div class="quick-section" id="quick-add-wrap">
+        <p class="quick-label">Quick add</p>
+        <div class="chip-wrap">
+          <button class="chip" data-site="youtube.com">YouTube</button>
+          <button class="chip" data-site="twitter.com">Twitter / X</button>
+          <button class="chip" data-site="instagram.com">Instagram</button>
+          <button class="chip" data-site="reddit.com">Reddit</button>
+          <button class="chip" data-site="tiktok.com">TikTok</button>
+          <button class="chip" data-site="netflix.com">Netflix</button>
+          <button class="chip" data-site="twitch.tv">Twitch</button>
+          <button class="chip" data-site="facebook.com">Facebook</button>
+        </div>
+      </div>
+    </div>
+
+    <p class="eyebrow" style="margin-top:20px">Doomscroll Protection</p>
+    <div class="card">
+      <div class="slider-row">
+        <div class="slider-header">
+          <span class="slider-label">Scroll limit</span>
+          <span class="slider-readout" id="doom-val-display"><span id="doom-val">10</span><span class="slider-unit">min</span></span>
+        </div>
+        <div class="slider-shell" id="doom-shell">
+          <div class="slider-tooltip hidden" id="doom-tooltip">10 min</div>
+          <div class="slider-track-wrap">
+            <div class="slider-fill" id="doom-fill"></div>
+            <input class="slider" id="doom-slider" type="range" min="1" max="60" step="1" value="10"
+                   aria-label="Scroll limit" aria-valuemin="1" aria-valuemax="60" aria-valuenow="10"/>
+          </div>
+        </div>
+      </div>
+      <div class="divider"></div>
+      <div class="slider-row">
+        <div class="slider-header">
+          <span class="slider-label">Punishment</span>
+          <span class="slider-readout" id="punish-val-display"><span id="punish-val">3</span><span class="slider-unit">min</span></span>
+        </div>
+        <div class="slider-shell" id="punish-shell">
+          <div class="slider-tooltip hidden" id="punish-tooltip">3 min</div>
+          <div class="slider-track-wrap">
+            <div class="slider-fill" id="punish-fill"></div>
+            <input class="slider" id="punish-slider" type="range" min="1" max="30" step="1" value="3"
+                   aria-label="Punishment duration" aria-valuemin="1" aria-valuemax="30" aria-valuenow="3"/>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ════ SCREEN TIME ════ -->
+  <section class="panel" id="panel-screentime">
+
+    <!-- Today hero -->
+    <div class="hero-card card">
+      <div class="hero-row">
+        <div>
+          <p class="hero-eyebrow">Today's Screen Time</p>
+          <p class="hero-num" id="today-total">0m</p>
+        </div>
+        <div class="hero-right">
+          <p class="hero-doom-label">Doomscrolling</p>
+          <p class="hero-doom-num" id="today-doomscroll">0m</p>
+        </div>
+      </div>
+      <!-- Mini day label -->
+      <p class="hero-date" id="today-date"></p>
+    </div>
+
+    <!-- This week bar chart -->
+    <p class="eyebrow" style="margin-top:16px">This Week</p>
+    <div class="card week-card">
+      <div class="week-bars" id="week-chart"></div>
+      <div class="week-total-row">
+        <span class="week-total-lbl">Weekly total</span>
+        <span class="week-total-val" id="week-total">0m</span>
+      </div>
+    </div>
+
+    <!-- Per-site breakdown -->
+    <p class="eyebrow" style="margin-top:16px">By Site — Today</p>
+    <div class="card" id="breakdown-card">
+      <p class="empty-msg" id="breakdown-empty">Open a social media site to start tracking.</p>
+      <div id="breakdown-bars"></div>
+    </div>
+
+    <!-- Category breakdown -->
+    <p class="eyebrow" style="margin-top:16px">By Category — Today</p>
+    <div class="card" id="category-card">
+      <p class="empty-msg" id="category-empty">No data yet.</p>
+      <div id="category-bars"></div>
+    </div>
+
+  </section>
+
+  <!-- ════ STATS ════ -->
+  <section class="panel" id="panel-stats">
+
+    <div class="kpi-grid">
+      <div class="kpi card">
+        <div class="kpi-num" id="k-sessions">0</div>
+        <div class="kpi-lbl">Sessions</div>
+      </div>
+      <div class="kpi card">
+        <div class="kpi-num" id="k-hours">0m</div>
+        <div class="kpi-lbl">Focus Time</div>
+      </div>
+      <div class="kpi card">
+        <div class="kpi-num" id="k-streak">0</div>
+        <div class="kpi-lbl">Streak 🔥</div>
+      </div>
+    </div>
+
+    <p class="eyebrow" style="margin-top:20px">Consistency</p>
+    <div class="card hmap-card">
+      <div class="heatmap" id="heatmap"></div>
+      <div class="hm-legend">
+        <span class="hm-txt">Less</span>
+        <span class="hm-sq l0"></span>
+        <span class="hm-sq l1"></span>
+        <span class="hm-sq l2"></span>
+        <span class="hm-sq l3"></span>
+        <span class="hm-sq l4"></span>
+        <span class="hm-txt">More</span>
+      </div>
+    </div>
+
+    <p class="eyebrow" style="margin-top:20px">All‑Time Records</p>
+    <div class="card">
+      <div class="record-row">
+        <span class="rec-lbl">Total focus time</span>
+        <span class="rec-val" id="r-focus">0m</span>
+      </div>
+      <div class="divider"></div>
+      <div class="record-row">
+        <span class="rec-lbl">Total sessions</span>
+        <span class="rec-val" id="r-sessions">0</span>
+      </div>
+      <div class="divider"></div>
+      <div class="record-row">
+        <span class="rec-lbl">Best streak</span>
+        <span class="rec-val" id="r-streak">0 days</span>
+      </div>
+    </div>
+
+    <button class="btn-reset" id="btn-reset">Reset All Data</button>
+
+  </section>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -37,8 +37,32 @@ function initFocus(site) {
   document.getElementById('focus-site').textContent = site;
   document.getElementById('focus-quote').textContent = rand(FOCUS_QUOTES);
   document.getElementById('btn-back').addEventListener('click', () => history.back());
-  tick();
-  setInterval(tick, 1000);
+
+  // Give Up button — only visible in strict mode
+  const params = new URLSearchParams(window.location.search);
+  const isStrict = params.get('strict') === 'true';
+  const isManual = params.get('mode') === 'manual';
+  const giveupBtn = document.getElementById('btn-giveup');
+
+  if (isStrict && giveupBtn) {
+    giveupBtn.classList.remove('hidden');
+    giveupBtn.addEventListener('click', async () => {
+      if (!confirm('Exit strict mode and end the session? This defeats the purpose — are you sure?')) return;
+      try {
+        await send({ type: 'SKIP_STRICT' });
+        history.back();
+      } catch { history.back(); }
+    });
+  }
+
+  if (isManual) {
+    // Manual blocker — no timer to show
+    const timerRow = document.querySelector('.timer-row');
+    if (timerRow) timerRow.style.display = 'none';
+  } else {
+    tick();
+    setInterval(tick, 1000);
+  }
 }
 
 async function tick() {

@@ -127,6 +127,11 @@ function wire() {
     });
 
   // Blocker
+  // Always-block toggle
+  document.getElementById('blocking-toggle').addEventListener('change', async e => {
+    await bg({ type: 'TOGGLE_BLOCKING', enabled: e.target.checked });
+  });
+
   document.getElementById('btn-add-site').addEventListener('click', addSite);
   document.getElementById('site-input').addEventListener('keydown', e => { if (e.key === 'Enter') addSite(); });
   document.getElementById('site-list').addEventListener('click', e => {
@@ -187,14 +192,13 @@ function renderFocus() {
   const pips = el('timer-pips');
   if (!pips) { return; }
   pips.innerHTML = '';
-  const doneInCycle = (s.sessionsCompleted || 0) % 4;
-  // If currently in a break, highlight the pip for the session we just finished
-  const highlightUpTo = s.mode === 'break' ? doneInCycle : doneInCycle;
+  // Daily pips: use pipsCompleted from stats (resets at midnight)
+  const dailyDone = (state.stats?.pipsCompleted || 0) % 4;
+  const inFocus = active && s.mode === 'focus';
   for (let i = 0; i < 4; i++) {
     const d = document.createElement('span');
-    d.className = 'pip' + (i < highlightUpTo ? ' done' : '');
-    // Active focus session: pulse the current pip
-    if (active && s.mode === 'focus' && i === doneInCycle) d.className += ' current';
+    d.className = 'pip' + (i < dailyDone ? ' done' : '');
+    if (inFocus && i === dailyDone) d.className += ' current';
     pips.appendChild(d);
   }
 
@@ -390,6 +394,8 @@ function syncSliders() {
 function renderBlockerTab() {
   el('doom-val').textContent = localDoom;
   el('punish-val').textContent = localPunish;
+  const bt = el('blocking-toggle');
+  if (bt) bt.checked = state.blockingEnabled || false;
   renderBlockerStatus();
   renderSiteList();
 }
@@ -467,22 +473,36 @@ async function stepDoom(type, delta) {
 const SITE_CATEGORIES = {
   'youtube.com':    'Video',
   'twitch.tv':      'Video',
+  'vimeo.com':      'Video',
+  'dailymotion.com':'Video',
   'twitter.com':    'Social',
   'x.com':          'Social',
   'instagram.com':  'Social',
   'facebook.com':   'Social',
   'snapchat.com':   'Social',
   'linkedin.com':   'Social',
+  'pinterest.com':  'Social',
   'tiktok.com':     'Short Video',
   'reddit.com':     'Forums',
+  'quora.com':      'Forums',
+  'stackoverflow.com': 'Dev Tools',
+  'github.com':     'Dev Tools',
+  'netflix.com':    'Streaming',
+  'primevideo.com': 'Streaming',
+  'disneyplus.com': 'Streaming',
+  'google.com':     'Search',
+  'bing.com':       'Search',
 };
 
 const CATEGORY_COLORS = {
-  'Video':       '#84C0E9',
-  'Social':      '#3F6D85',
-  'Short Video': '#6ABFA3',
-  'Forums':      '#A07FC0',
-  'Other':       '#C0A07F',
+  'Video':        '#84C0E9',
+  'Social':       '#3F6D85',
+  'Short Video':  '#6ABFA3',
+  'Forums':       '#A07FC0',
+  'Streaming':    '#E07B6A',
+  'Dev Tools':    '#5B8DD9',
+  'Search':       '#8BA0B0',
+  'Others':       '#B0A898',
 };
 
 // ── SCREEN TIME ───────────────────────────────────────
@@ -494,6 +514,7 @@ function renderScreenTime() {
   const sites = Object.entries(raw)
     .filter(([k]) => !k.startsWith('ds:'))
     .sort((a, b) => b[1] - a[1]);
+  // All tracked sites — no filter (content.js now tracks every site)
 
   // Doom entries
   const totalDoomSec = Object.entries(raw)
@@ -538,7 +559,10 @@ function renderScreenTime() {
 
   const catTotals = {};
   sites.forEach(([domain, secs]) => {
-    const cat = SITE_CATEGORIES[domain] || 'Other';
+    // Match site categories (check if domain ends with a known key)
+    const cat = Object.keys(SITE_CATEGORIES).find(k => domain === k || domain.endsWith('.' + k))
+      ? SITE_CATEGORIES[Object.keys(SITE_CATEGORIES).find(k => domain === k || domain.endsWith('.' + k))]
+      : 'Others';
     catTotals[cat] = (catTotals[cat] || 0) + secs;
   });
 

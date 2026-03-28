@@ -1,4 +1,4 @@
-// Flow Content Script v2.3
+// Flow Content Script v3.0
 
 if (window.location.href.startsWith(chrome.runtime.getURL(''))) {
   throw new Error('skip');
@@ -13,7 +13,6 @@ const SOCIAL_SITES = [
 
 const isSocial = SOCIAL_SITES.some(s => hostname === s || hostname.endsWith('.' + s));
 
-// ─── MESSAGING ──────────────────────────────────────
 function safeSend(msg) {
   return new Promise(resolve => {
     try {
@@ -25,98 +24,109 @@ function safeSend(msg) {
   });
 }
 
-// ─── BLOCK CHECK ON LOAD ────────────────────────────
+// ── BLOCK CHECK ──────────────────────────────────────
 (async () => {
   const r = await safeSend({ type: 'CHECK_BLOCKED', url: window.location.href });
   if (r && r.blocked) {
     const p = new URLSearchParams({
-      site: hostname, mode: r.mode || 'focus',
-      ...(r.blockedUntil ? { until: r.blockedUntil } : {})
+      site: hostname,
+      mode: r.mode || 'focus',
+      ...(r.blockedUntil ? { until: r.blockedUntil } : {}),
+      ...(r.strictMode ? { strict: 'true' } : {}),
     });
     window.location.replace(chrome.runtime.getURL('blocked.html') + '?' + p);
   }
 })();
 
-// ─── SCREEN TIME + DOOMSCROLL ────────────────────────
-if (isSocial) {
-  let screenSecs  = 0;
-  let doomSecs    = 0;
-  let doomBlocked = false;
-  let scrollActive = false;
-  let scrollTimer  = null;
+// ── SCREEN TIME — track ALL sites (not just social) ──
+let screenSecs = 0;
 
-  // Count 1 second of visibility every tick
+setInterval(() => {
+  if (!document.hidden) screenSecs += 1;
+}, 1000);
+
+setInterval(async () => {
+  if (screenSecs > 0) {
+    const s = screenSecs; screenSecs = 0;
+    await safeSend({ type: 'TRACK_SCREEN_TIME', domain: hostname, seconds: s });
+  }
+}, 10000);
+
+const flushScreen = () => {
+  if (screenSecs > 0) {
+    safeSend({ type: 'TRACK_SCREEN_TIME', domain: hostname, seconds: screenSecs });
+    screenSecs = 0;
+  }
+};
+window.addEventListener('beforeunload', flushScreen);
+window.addEventListener('pagehide', flushScreen);
+document.addEventListener('visibilitychange', () => { if (document.hidden) flushScreen(); });
+
+// ── DOOMSCROLL — only on social sites ────────────────
+if (isSocial) {
+  let doomSecs = 0;
+  let scrolling = false;
+  let scrollTimer = null;
+  let doomBlocked = false;
+
   setInterval(() => {
-    if (document.hidden || doomBlocked) return;
-    screenSecs += 1;
-    if (scrollActive) doomSecs += 1;
+    if (!document.hidden && scrolling && !doomBlocked) doomSecs += 1;
   }, 1000);
 
-  // Flush to background every 5 seconds (reduced from 10)
-  async function flush() {
-    if (screenSecs > 0) {
-      const s = screenSecs;
-      screenSecs = 0;
-      await safeSend({ type: 'TRACK_SCREEN_TIME', domain: hostname, seconds: s });
-    }
+  setInterval(async () => {
     if (doomSecs > 0 && !doomBlocked) {
-      const d = doomSecs;
-      doomSecs = 0;
+      const d = doomSecs; doomSecs = 0;
       const resp = await safeSend({ type: 'TRACK_DOOMSCROLL_TIME', domain: hostname, seconds: d });
       if (resp && resp.exceeded) {
         doomBlocked = true;
         await safeSend({ type: 'DOOMSCROLL_EXCEEDED', domain: hostname });
       }
     }
-  }
+  }, 10000);
 
-  setInterval(flush, 5000);
-
-  // Flush on page leave
-  window.addEventListener('beforeunload', flush);
-  window.addEventListener('pagehide', flush);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
-
-  // Scroll detection — capture phase catches all scroll containers (Twitter, Instagram, TikTok)
   function onScroll() {
     if (doomBlocked) return;
-    scrollActive = true;
+    scrolling = true;
     clearTimeout(scrollTimer);
-    scrollTimer = setTimeout(() => { scrollActive = false; }, 2000);
+    scrollTimer = setTimeout(() => { scrolling = false; }, 2000);
   }
-
   document.addEventListener('scroll', onScroll, { passive: true, capture: true });
   window.addEventListener('scroll', onScroll, { passive: true });
 
-  // Touch for mobile-style feeds
-  let touchStartY = 0;
-  document.addEventListener('touchstart', e => { touchStartY = e.touches[0]?.clientY ?? 0; }, { passive: true, capture: true });
-  document.addEventListener('touchmove', e => {
-    if (Math.abs((e.touches[0]?.clientY ?? 0) - touchStartY) > 10) onScroll();
-  }, { passive: true, capture: true });
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === 'FLUSH_NOW') {
+      Promise.all([
+        screenSecs > 0 ? safeSend({ type: 'TRACK_SCREEN_TIME', domain: hostname, seconds: screenSecs }) : null,
+        doomSecs > 0 ? safeSend({ type: 'TRACK_DOOMSCROLL_TIME', domain: hostname, seconds: doomSecs }) : null,
+      ]).then(() => {
+        screenSecs = 0; doomSecs = 0;
+        sendResponse({ ok: true });
+      });
+      return true;
+    }
+  });
 
-  // Restore doomscroll state on reload
   safeSend({ type: 'GET_DOOMSCROLL_TIME', domain: hostname }).then(r => {
     if (r && r.seconds >= r.limitSeconds) doomBlocked = true;
   });
+}
 
-  // ── Listen for flush request from popup ──────────
-  // When the popup opens it tells all tabs to flush immediately
+// ── FLUSH_NOW for non-social ─────────────────────────
+if (!isSocial) {
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'FLUSH_NOW') {
-      flush().then(() => sendResponse({ ok: true }));
-      return true; // async response
+      if (screenSecs > 0) {
+        safeSend({ type: 'TRACK_SCREEN_TIME', domain: hostname, seconds: screenSecs });
+        screenSecs = 0;
+      }
+      sendResponse({ ok: true });
     }
   });
 }
 
-// ─── FLOATING TIMER ─────────────────────────────────
-let floatEl   = null;
-let shadow    = null;
-let tickTimer = null;
-let session   = null;
-let dragging  = false;
-let dX = 0, dY = 0;
+// ── FLOATING TIMER ────────────────────────────────────
+let floatEl = null, shadow = null, tickTimer = null, session = null;
+let dragging = false, dX = 0, dY = 0;
 
 async function initFloat() {
   const state = await safeSend({ type: 'GET_STATE' });
@@ -125,40 +135,23 @@ async function initFloat() {
 
 function showFloat() {
   if (floatEl) { updateFloat(); return; }
-
   floatEl = document.createElement('div');
   floatEl.id = '__flow_float__';
-  Object.assign(floatEl.style, {
-    position: 'fixed', bottom: '24px', right: '24px',
-    zIndex: '2147483647', userSelect: 'none',
-  });
+  Object.assign(floatEl.style, { position:'fixed', bottom:'24px', right:'24px', zIndex:'2147483647', userSelect:'none' });
   document.documentElement.appendChild(floatEl);
   shadow = floatEl.attachShadow({ mode: 'open' });
 
   const style = document.createElement('style');
   style.textContent = `
-    .pill {
-      display:flex; align-items:center; gap:8px;
-      background:rgba(255,255,255,0.95);
-      border:1px solid rgba(63,109,133,0.18);
-      border-radius:50px;
-      padding:9px 17px 9px 13px;
-      box-shadow:0 4px 20px rgba(63,109,133,0.18);
-      font-family:-apple-system,BlinkMacSystemFont,'Inter',system-ui,sans-serif;
-      -webkit-font-smoothing:antialiased;
-      cursor:grab;
-    }
-    .pill:hover{opacity:0.88;}
-    .pill:active{cursor:grabbing;}
+    .pill { display:flex;align-items:center;gap:8px;background:rgba(255,255,255,0.95);border:1px solid rgba(63,109,133,0.18);border-radius:50px;padding:9px 17px 9px 13px;box-shadow:0 4px 20px rgba(63,109,133,0.18);font-family:-apple-system,BlinkMacSystemFont,'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased;cursor:grab; }
+    .pill:hover{opacity:0.88;} .pill:active{cursor:grabbing;}
     .dot{width:7px;height:7px;border-radius:50%;background:#3F6D85;flex-shrink:0;animation:p 2s ease-in-out infinite;}
     .dot.brk{background:#34A853;}
     @keyframes p{0%,100%{opacity:1}50%{opacity:0.4}}
     .mode{font-size:10px;font-weight:700;letter-spacing:.9px;color:#7F9AAA;}
     .time{font-size:15px;font-weight:700;letter-spacing:-.4px;color:#1A2B35;font-variant-numeric:tabular-nums;min-width:42px;}
   `;
-
-  const pill = document.createElement('div');
-  pill.className = 'pill';
+  const pill = document.createElement('div'); pill.className = 'pill';
   const dot  = Object.assign(document.createElement('span'), { className:'dot', id:'fd' });
   const mode = Object.assign(document.createElement('span'), { className:'mode', id:'fm', textContent:'FOCUS' });
   const time = Object.assign(document.createElement('span'), { className:'time', id:'ft', textContent:'--:--' });
@@ -172,11 +165,7 @@ function showFloat() {
     floatEl.style.cssText += ';bottom:auto;right:auto;left:' + r.left + 'px;top:' + r.top + 'px';
     e.preventDefault();
   });
-  document.addEventListener('mousemove', e => {
-    if (!dragging) return;
-    floatEl.style.left = (e.clientX - dX) + 'px';
-    floatEl.style.top  = (e.clientY - dY) + 'px';
-  });
+  document.addEventListener('mousemove', e => { if (!dragging) return; floatEl.style.left = (e.clientX-dX)+'px'; floatEl.style.top = (e.clientY-dY)+'px'; });
   document.addEventListener('mouseup', () => { dragging = false; });
 
   tickTimer = setInterval(updateFloat, 1000);
@@ -192,23 +181,16 @@ function updateFloat() {
   if (!shadow || !session) return;
   const s = session;
   const elapsed = s.startTime ? Math.floor((Date.now() - s.startTime) / 1000) : 0;
-  const total   = (s.mode === 'focus' ? s.focusDuration : s.breakDuration) * 60;
-  const rem     = Math.max(0, total - elapsed);
-  const mm = String(Math.floor(rem / 60)).padStart(2, '0');
-  const ss = String(rem % 60).padStart(2, '0');
+  const total = (s.mode === 'focus' ? s.focusDuration : s.breakDuration) * 60;
+  const rem = Math.max(0, total - elapsed);
   const isBreak = s.mode === 'break';
-  const ft = shadow.getElementById('ft');
-  const fm = shadow.getElementById('fm');
-  const fd = shadow.getElementById('fd');
-  if (ft) ft.textContent = `${mm}:${ss}`;
-  if (fm) fm.textContent = isBreak ? 'BREAK' : 'FOCUS';
-  if (fd) fd.className = 'dot' + (isBreak ? ' brk' : '');
+  const ft = shadow.getElementById('ft'); if (ft) ft.textContent = `${String(Math.floor(rem/60)).padStart(2,'0')}:${String(rem%60).padStart(2,'0')}`;
+  const fm = shadow.getElementById('fm'); if (fm) fm.textContent = isBreak ? 'BREAK' : 'FOCUS';
+  const fd = shadow.getElementById('fd'); if (fd) fd.className = 'dot' + (isBreak ? ' brk' : '');
 }
 
 chrome.runtime.onMessage.addListener(msg => {
-  if (msg.type === 'SESSION_STARTED' || msg.type === 'SESSION_UPDATE') {
-    if (msg.session) { session = msg.session; showFloat(); }
-  }
+  if (msg.type === 'SESSION_STARTED' || msg.type === 'SESSION_UPDATE') { if (msg.session) { session = msg.session; showFloat(); } }
   if (msg.type === 'SESSION_ENDED') { session = null; hideFloat(); }
   if (msg.type === 'TICK' && msg.session) { session = msg.session; updateFloat(); }
 });

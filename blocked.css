@@ -171,3 +171,20 @@ html, body {
 .punish-time  { font-size: 40px; font-weight: 700; letter-spacing: -1.5px; color: var(--red); font-variant-numeric: tabular-nums; line-height: 1; }
 
 .doom-note { font-size: 12px; color: var(--text-3); margin-top: 12px; }
+
+/* Give Up button — only shown in strict mode */
+.btn-giveup {
+  display: block;
+  margin: 12px auto 0;
+  background: none;
+  border: none;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-3);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 0.15s;
+}
+.btn-giveup:hover { color: var(--red); }

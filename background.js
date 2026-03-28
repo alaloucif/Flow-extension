@@ -1,4 +1,4 @@
-// Flow Background Service Worker v2.1
+// Flow Background Service Worker v3.0
 
 const SOCIAL_SITES = [
   'youtube.com','twitter.com','x.com','instagram.com',
@@ -23,6 +23,7 @@ const DEFAULT_STATE = {
     'youtube.com','twitter.com','x.com','instagram.com',
     'facebook.com','tiktok.com','reddit.com','netflix.com','twitch.tv',
   ],
+  blockingEnabled: false, // manual blocker toggle (independent of focus session)
   doomscroll: {
     limitMinutes: 10,
     punishmentMinutes: 3,
@@ -32,16 +33,22 @@ const DEFAULT_STATE = {
   stats: {
     heatmap: {},
     streakDays: 0,
-    lastActiveDate: null,
+    lastVictoryDate: null,   // ISO date string YYYY-MM-DD
     totalSessions: 0,
     totalFocusMinutes: 0,
+    lastPipsResetDate: null, // for daily pip reset
+    pipsCompleted: 0,        // persisted daily pip count
   },
 };
 
 // ── INIT ──────────────────────────────────────────────
 chrome.runtime.onInstalled.addListener(async () => {
   const { flowState } = await chrome.storage.local.get('flowState');
-  if (!flowState) await chrome.storage.local.set({ flowState: DEFAULT_STATE });
+  if (!flowState) {
+    await chrome.storage.local.set({ flowState: DEFAULT_STATE });
+    // Also init sync storage for streak
+    await chrome.storage.sync.set({ streak: { streakDays: 0, lastVictoryDate: null } });
+  }
   resetAlarms();
 });
 
@@ -49,22 +56,29 @@ chrome.runtime.onStartup.addListener(resetAlarms);
 
 function resetAlarms() {
   chrome.alarms.clearAll(() => {
-    chrome.alarms.create('flowTick',    { periodInMinutes: 1/60 });
-    chrome.alarms.create('keepAlive',   { periodInMinutes: 0.4 });
-    chrome.alarms.create('dailyReset',  { periodInMinutes: 60 }); // check every hour
+    chrome.alarms.create('flowTick',   { periodInMinutes: 1/60 });
+    chrome.alarms.create('keepAlive',  { periodInMinutes: 0.4 });
+    chrome.alarms.create('dailyReset', { periodInMinutes: 60 });
   });
 }
 
-// Keep service worker alive
+// ── ALARMS ────────────────────────────────────────────
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'keepAlive') return;
+
   if (alarm.name === 'dailyReset') {
-    // Prune screen time older than 30 days and store last-reset date
     const state = await getState();
     const cutoff = dateKey(-30);
     let pruned = false;
     for (const k of Object.keys(state.screenTime || {})) {
       if (k < cutoff) { delete state.screenTime[k]; pruned = true; }
+    }
+    // Reset pips if it's a new day
+    const today = dateKey();
+    if (state.stats.lastPipsResetDate !== today) {
+      state.stats.pipsCompleted = 0;
+      state.stats.lastPipsResetDate = today;
+      pruned = true;
     }
     if (pruned) await setState(state);
     return;
@@ -74,8 +88,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   const state = await getState();
   if (!state.session.active) return;
 
-  const now = Date.now();
-  const elapsed = Math.floor((now - state.session.startTime) / 1000);
+  const elapsed = Math.floor((Date.now() - state.session.startTime) / 1000);
   const durationSec = state.session.mode === 'focus'
     ? state.session.focusDuration * 60
     : state.session.breakDuration * 60;
@@ -87,41 +100,43 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
+// ── SESSION COMPLETE ───────────────────────────────────
 async function handleSessionComplete(state) {
   if (state.session.mode === 'focus') {
-    // ── Focus session just ended ──
     const today = dateKey();
     const mins = state.session.focusDuration;
     state.stats.heatmap[today] = (state.stats.heatmap[today] || 0) + mins;
-    state.stats.totalSessions  += 1;
+    state.stats.totalSessions += 1;
     state.stats.totalFocusMinutes = (state.stats.totalFocusMinutes || 0) + mins;
     state.session.sessionsCompleted = (state.session.sessionsCompleted || 0) + 1;
-    updateStreak(state);
 
-    // Switch to break — always continue automatically
+    // Daily pips: track completed sessions today (resets at midnight)
+    if (state.stats.lastPipsResetDate !== today) {
+      state.stats.pipsCompleted = 0;
+      state.stats.lastPipsResetDate = today;
+    }
+    state.stats.pipsCompleted = (state.stats.pipsCompleted || 0) + 1;
+
+    // ── STREAK (sync storage, proper logic) ──
+    await updateStreak();
+
     state.session.mode = 'break';
     state.session.startTime = Date.now();
-
-    const round = state.session.sessionsCompleted % 4 || 4; // 1-4
-    const breakLabel = round === 4 ? 'long break coming — well done!' : `${state.session.breakDuration}m break`;
-    notify(`Flow — Round ${round}/4 done ✓`, `${mins}m focused. ${breakLabel}`);
+    const round = state.session.sessionsCompleted % 4 || 4;
+    notify(`Flow — Round ${round}/4 ✓`, `${mins}m focused. ${state.session.breakDuration}m break.`);
 
   } else {
-    // ── Break just ended ──
     const completed = state.session.sessionsCompleted || 0;
-
     if (completed > 0 && completed % 4 === 0) {
-      // Full Pomodoro loop (4 focus + 4 breaks) complete — stop the cycle
       state.session.active = false;
       state.session.mode = 'focus';
       state.session.startTime = null;
-      state.session.sessionsCompleted = 0; // reset for next cycle
-      notify('Flow — Cycle Complete 🎉', 'You finished 4 focus sessions. Great work!');
+      state.session.sessionsCompleted = 0;
+      notify('Flow — Cycle Complete 🎉', '4 sessions done. Great work!');
     } else {
-      // More sessions remain — auto-start next focus immediately
       state.session.mode = 'focus';
       state.session.startTime = Date.now();
-      notify('Flow — Break Over', `Session ${(completed % 4) + 1}/4 starting now.`);
+      notify('Flow — Break Over', `Session ${(completed % 4) + 1}/4 starting.`);
     }
   }
 
@@ -129,12 +144,36 @@ async function handleSessionComplete(state) {
   broadcast({ type: 'SESSION_UPDATE', session: state.session, stats: state.stats });
 }
 
-function updateStreak(state) {
+// ── STREAK (chrome.storage.sync) ──────────────────────
+async function updateStreak() {
   const today = dateKey();
   const yesterday = dateKey(-1);
-  if (state.stats.lastActiveDate === yesterday) state.stats.streakDays += 1;
-  else if (state.stats.lastActiveDate !== today) state.stats.streakDays = 1;
-  state.stats.lastActiveDate = today;
+  let { streak } = await chrome.storage.sync.get('streak');
+  if (!streak) streak = { streakDays: 0, lastVictoryDate: null };
+
+  if (streak.lastVictoryDate === today) {
+    // Already got credit today — nothing to do
+  } else if (streak.lastVictoryDate === yesterday) {
+    streak.streakDays += 1;
+    streak.lastVictoryDate = today;
+  } else {
+    // Missed a day or first ever session
+    streak.streakDays = 1;
+    streak.lastVictoryDate = today;
+  }
+  await chrome.storage.sync.set({ streak });
+  return streak;
+}
+
+// Compute the VISUAL streak (don't mutate storage)
+async function getVisualStreak() {
+  const today = dateKey();
+  const yesterday = dateKey(-1);
+  let { streak } = await chrome.storage.sync.get('streak');
+  if (!streak) return 0;
+  // If they haven't completed a session since yesterday, show 0
+  if (streak.lastVictoryDate !== today && streak.lastVictoryDate !== yesterday) return 0;
+  return streak.streakDays;
 }
 
 // ── MESSAGES ──────────────────────────────────────────
@@ -143,11 +182,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
-async function handle(msg, sender) {
+async function handle(msg) {
   const state = await getState();
 
   switch (msg.type) {
-    case 'GET_STATE': return state;
+    case 'GET_STATE': {
+      // Attach visual streak and daily pips
+      const today = dateKey();
+      if (state.stats.lastPipsResetDate !== today) {
+        state.stats.pipsCompleted = 0;
+      }
+      state.stats.streakDays = await getVisualStreak();
+      return state;
+    }
 
     case 'START_SESSION':
       state.session.active = true;
@@ -157,7 +204,6 @@ async function handle(msg, sender) {
       state.session.breakDuration = msg.breakDuration ?? 5;
       state.session.strictMode = msg.strictMode ?? false;
       await setState(state);
-      // Notify all tabs to show floating timer
       broadcastToTabs({ type: 'SESSION_STARTED', session: state.session });
       return { ok: true };
 
@@ -170,8 +216,24 @@ async function handle(msg, sender) {
       broadcastToTabs({ type: 'SESSION_ENDED' });
       return { ok: true };
 
+    case 'SKIP_STRICT': {
+      // Emergency override — bypass strict mode
+      state.session.active = false;
+      state.session.mode = 'focus';
+      state.session.startTime = null;
+      state.session.strictMode = false;
+      await setState(state);
+      broadcastToTabs({ type: 'SESSION_ENDED' });
+      return { ok: true };
+    }
+
     case 'UPDATE_BLOCKLIST':
       state.blocklist = msg.blocklist;
+      await setState(state);
+      return { ok: true };
+
+    case 'TOGGLE_BLOCKING':
+      state.blockingEnabled = msg.enabled;
       await setState(state);
       return { ok: true };
 
@@ -184,11 +246,19 @@ async function handle(msg, sender) {
     case 'CHECK_BLOCKED': {
       let hostname;
       try { hostname = new URL(msg.url).hostname.replace(/^www\./, ''); } catch { return { blocked: false }; }
-      // Focus block
+
+      // Focus session blocking
       if (state.session.active && state.session.mode === 'focus') {
         const hit = state.blocklist.some(s => hostname.endsWith(s.replace(/^www\./, '')));
-        if (hit) return { blocked: true, mode: 'focus' };
+        if (hit) return { blocked: true, mode: 'focus', strictMode: state.session.strictMode };
       }
+
+      // Manual blocker toggle (always-on blocking independent of session)
+      if (!state.session.active && state.blockingEnabled) {
+        const hit = state.blocklist.some(s => hostname.endsWith(s.replace(/^www\./, '')));
+        if (hit) return { blocked: true, mode: 'manual' };
+      }
+
       // Doomscroll block
       const db = state.doomscroll.blocked[hostname];
       if (db && db.blockedUntil > Date.now()) return { blocked: true, mode: 'doomscroll', blockedUntil: db.blockedUntil };
@@ -205,7 +275,6 @@ async function handle(msg, sender) {
       const today = dateKey();
       if (!state.screenTime[today]) state.screenTime[today] = {};
       state.screenTime[today][domain] = (state.screenTime[today][domain] || 0) + seconds;
-      // Keep 30 days
       const cutoff = dateKey(-30);
       for (const k of Object.keys(state.screenTime)) { if (k < cutoff) delete state.screenTime[k]; }
       await setState(state);
@@ -227,8 +296,7 @@ async function handle(msg, sender) {
       state.screenTime[today][key] = (state.screenTime[today][key] || 0) + seconds;
       await setState(state);
       const limit = (state.doomscroll.limitMinutes || 10) * 60;
-      const total = state.screenTime[today][key];
-      return { exceeded: total >= limit, total, limit };
+      return { exceeded: state.screenTime[today][key] >= limit };
     }
 
     case 'DOOMSCROLL_EXCEEDED': {
@@ -237,7 +305,6 @@ async function handle(msg, sender) {
       const until = Date.now() + punishMs;
       state.doomscroll.blocked[domain] = { blockedUntil: until };
       await setState(state);
-      // Redirect tabs on this domain
       const tabs = await chrome.tabs.query({});
       for (const tab of tabs) {
         try {
@@ -262,21 +329,18 @@ async function handle(msg, sender) {
     }
 
     case 'CLEAR_STATS':
-      state.stats = { heatmap: {}, streakDays: 0, lastActiveDate: null, totalSessions: 0, totalFocusMinutes: 0 };
+      state.stats = { heatmap: {}, streakDays: 0, lastVictoryDate: null, totalSessions: 0, totalFocusMinutes: 0, pipsCompleted: 0, lastPipsResetDate: null };
       state.screenTime = {};
+      await chrome.storage.sync.set({ streak: { streakDays: 0, lastVictoryDate: null } });
       await setState(state);
       return { ok: true };
 
     case 'FLUSH_TABS':
-      // Ask all social-media tabs to flush their pending screen time right now
       try {
-        const tabs = await chrome.tabs.query({ url: ['*://*.youtube.com/*','*://*.twitter.com/*','*://*.x.com/*',
-          '*://*.instagram.com/*','*://*.facebook.com/*','*://*.tiktok.com/*',
-          '*://*.reddit.com/*','*://*.twitch.tv/*','*://*.snapchat.com/*','*://*.linkedin.com/*'] });
-        const flushes = tabs.map(tab =>
+        const tabs = await chrome.tabs.query({});
+        await Promise.all(tabs.map(tab =>
           chrome.tabs.sendMessage(tab.id, { type: 'FLUSH_NOW' }).catch(() => null)
-        );
-        await Promise.all(flushes);
+        ));
       } catch {}
       return { ok: true };
 
@@ -289,7 +353,7 @@ async function handle(msg, sender) {
   }
 }
 
-// ── NAVIGATION BLOCKING ───────────────────────────────
+// ── NAVIGATION BLOCKING ────────────────────────────────
 chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   if (details.frameId !== 0) return;
   if (details.url.startsWith(chrome.runtime.getURL(''))) return;
@@ -297,15 +361,29 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   let hostname;
   try { hostname = new URL(details.url).hostname.replace(/^www\./, ''); } catch { return; }
 
+  // Session focus block
   if (state.session.active && state.session.mode === 'focus') {
     const hit = state.blocklist.some(s => hostname.endsWith(s.replace(/^www\./, '')));
     if (hit) {
       chrome.tabs.update(details.tabId, {
-        url: chrome.runtime.getURL('blocked.html') + `?site=${encodeURIComponent(hostname)}&mode=focus`
+        url: chrome.runtime.getURL('blocked.html') + `?site=${encodeURIComponent(hostname)}&mode=focus&strict=${state.session.strictMode}`
       });
       return;
     }
   }
+
+  // Manual blocker
+  if (!state.session.active && state.blockingEnabled) {
+    const hit = state.blocklist.some(s => hostname.endsWith(s.replace(/^www\./, '')));
+    if (hit) {
+      chrome.tabs.update(details.tabId, {
+        url: chrome.runtime.getURL('blocked.html') + `?site=${encodeURIComponent(hostname)}&mode=manual`
+      });
+      return;
+    }
+  }
+
+  // Doomscroll block
   const db = state.doomscroll.blocked[hostname];
   if (db && db.blockedUntil > Date.now()) {
     chrome.tabs.update(details.tabId, {
@@ -314,18 +392,15 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   }
 });
 
-// Handle SPA navigation (YouTube, Twitter, etc.)
 chrome.webNavigation.onHistoryStateUpdated.addListener(async (details) => {
   if (details.frameId !== 0) return;
-  // Re-check blocking for new URL
   const state = await getState();
   if (!state.session.active || state.session.mode !== 'focus') return;
   let hostname;
   try { hostname = new URL(details.url).hostname.replace(/^www\./, ''); } catch { return; }
-  const hit = state.blocklist.some(s => hostname.endsWith(s.replace(/^www\./, '')));
-  if (hit) {
+  if (state.blocklist.some(s => hostname.endsWith(s.replace(/^www\./, '')))) {
     chrome.tabs.update(details.tabId, {
-      url: chrome.runtime.getURL('blocked.html') + `?site=${encodeURIComponent(hostname)}&mode=focus`
+      url: chrome.runtime.getURL('blocked.html') + `?site=${encodeURIComponent(hostname)}&mode=focus&strict=${state.session.strictMode}`
     });
   }
 });
@@ -336,9 +411,7 @@ async function getState() {
   return flowState ? JSON.parse(JSON.stringify(flowState)) : JSON.parse(JSON.stringify(DEFAULT_STATE));
 }
 async function setState(s) { await chrome.storage.local.set({ flowState: s }); }
-
 function broadcast(msg) { chrome.runtime.sendMessage(msg).catch(() => {}); }
-
 async function broadcastToTabs(msg) {
   const tabs = await chrome.tabs.query({});
   for (const tab of tabs) {
@@ -347,12 +420,10 @@ async function broadcastToTabs(msg) {
     }
   }
 }
-
 function dateKey(offset = 0) {
   const d = new Date(); d.setDate(d.getDate() + offset);
   return d.toISOString().split('T')[0];
 }
-
 function notify(title, message) {
   chrome.notifications.create({ type: 'basic', iconUrl: 'icons/icon128.png', title, message }).catch(() => {});
 }

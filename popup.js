@@ -58,6 +58,10 @@ function setupTabs() {
         const fresh = await bg({ type: 'GET_STATE' });
         if (fresh) { state = fresh; renderScreenTime(); renderStats(); }
       }
+      // Re-sync doom/punish sliders when blocker tab becomes visible (offsetWidth was 0 before)
+      if (t.dataset.tab === 'blocker') {
+        requestAnimationFrame(() => syncDoomSliders());
+      }
     });
   });
 
@@ -744,6 +748,27 @@ async function resetData() {
 }
 
 
+
+// ── DOOM SLIDER SYNC (call after panel becomes visible) ──
+function syncDoomSliders() {
+  const configs = [
+    { id: 'doom-slider',   val: localDoom,   min: 1, max: 60 },
+    { id: 'punish-slider', val: localPunish, min: 1, max: 30 },
+  ];
+  configs.forEach(({ id, val, min, max }) => {
+    const input = el(id);
+    if (!input) return;
+    input.value = val;
+    // Now offsetWidth is valid since panel is visible
+    const thumbR  = 12;
+    const trackW  = input.offsetWidth;
+    const rawPct  = (val - min) / (max - min);
+    const adjPct  = trackW > 0
+      ? ((thumbR + rawPct * (trackW - 2 * thumbR)) / trackW) * 100
+      : rawPct * 100;
+    input.style.setProperty('--pct', adjPct + '%');
+  });
+}
 
 // ── UTILS ─────────────────────────────────────────────
 function bg(m) {

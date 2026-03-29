@@ -30,6 +30,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function onBgMessage(msg) {
+  if (msg.type === 'TOAST') {
+    showToast(msg.emoji, msg.title, msg.sub);
+    return;
+  }
   if (msg.type === 'SESSION_UPDATE') {
     state.session = msg.session;
     if (msg.stats) state.stats = msg.stats;
@@ -748,6 +752,54 @@ async function resetData() {
 }
 
 
+
+// ── TOAST NOTIFICATION ────────────────────────────────
+let toastTimer = null;
+
+function showToast(emoji, title, sub) {
+  // Remove any existing toast first
+  const existing = document.getElementById('flow-toast');
+  if (existing) existing.remove();
+  clearTimeout(toastTimer);
+
+  const toast = document.createElement('div');
+  toast.id = 'flow-toast';
+  toast.className = 'toast toast-enter';
+
+  const left = document.createElement('div');
+  left.className = 'toast-emoji';
+  left.textContent = emoji;
+
+  const right = document.createElement('div');
+  right.className = 'toast-body';
+
+  const t = document.createElement('div');
+  t.className = 'toast-title';
+  t.textContent = title;
+
+  const s = document.createElement('div');
+  s.className = 'toast-sub';
+  s.textContent = sub;
+
+  right.append(t, s);
+  toast.append(left, right);
+  document.body.appendChild(toast);
+
+  // Animate in
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      toast.classList.remove('toast-enter');
+      toast.classList.add('toast-show');
+    });
+  });
+
+  // Auto-dismiss after 3 seconds
+  toastTimer = setTimeout(() => {
+    toast.classList.remove('toast-show');
+    toast.classList.add('toast-exit');
+    toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+  }, 3000);
+}
 
 // ── DOOM SLIDER SYNC (call after panel becomes visible) ──
 function syncDoomSliders() {

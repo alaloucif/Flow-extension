@@ -123,7 +123,7 @@ async function handleSessionComplete(state) {
     state.session.mode = 'break';
     state.session.startTime = Date.now();
     const round = state.session.sessionsCompleted % 4 || 4;
-    notify(`Flow — Round ${round}/4 ✓`, `${mins}m focused. ${state.session.breakDuration}m break.`);
+    broadcast({ type: 'TOAST', emoji: '✓', title: `Round ${round}/4 done`, sub: `${mins}m focused · ${state.session.breakDuration}m break starting` });
 
   } else {
     const completed = state.session.sessionsCompleted || 0;
@@ -132,11 +132,11 @@ async function handleSessionComplete(state) {
       state.session.mode = 'focus';
       state.session.startTime = null;
       state.session.sessionsCompleted = 0;
-      notify('Flow — Cycle Complete 🎉', '4 sessions done. Great work!');
+      broadcast({ type: 'TOAST', emoji: '🎉', title: 'Cycle complete!', sub: 'You finished 4 sessions. Great work!' });
     } else {
       state.session.mode = 'focus';
       state.session.startTime = Date.now();
-      notify('Flow — Break Over', `Session ${(completed % 4) + 1}/4 starting.`);
+      broadcast({ type: 'TOAST', emoji: '▶', title: 'Break over', sub: `Session ${(completed % 4) + 1}/4 starting` });
     }
   }
 
@@ -423,7 +423,4 @@ async function broadcastToTabs(msg) {
 function dateKey(offset = 0) {
   const d = new Date(); d.setDate(d.getDate() + offset);
   return d.toISOString().split('T')[0];
-}
-function notify(title, message) {
-  chrome.notifications.create({ type: 'basic', iconUrl: 'icons/icon128.png', title, message }).catch(() => {});
 }

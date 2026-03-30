@@ -33,11 +33,15 @@ const DEFAULT_STATE = {
   stats: {
     heatmap: {},
     streakDays: 0,
-    lastVictoryDate: null,   // ISO date string YYYY-MM-DD
+    lastVictoryDate: null,
     totalSessions: 0,
     totalFocusMinutes: 0,
-    lastPipsResetDate: null, // for daily pip reset
-    pipsCompleted: 0,        // persisted daily pip count
+    lastPipsResetDate: null,
+    pipsCompleted: 0,
+    // Daily KPIs (reset each day)
+    dailySessions: 0,
+    dailyFocusMinutes: 0,
+    lastKpiResetDate: null,
   },
 };
 
@@ -108,6 +112,15 @@ async function handleSessionComplete(state) {
     state.stats.heatmap[today] = (state.stats.heatmap[today] || 0) + mins;
     state.stats.totalSessions += 1;
     state.stats.totalFocusMinutes = (state.stats.totalFocusMinutes || 0) + mins;
+    // Daily KPI reset
+    const todayForKpi = dateKey();
+    if (state.stats.lastKpiResetDate !== todayForKpi) {
+      state.stats.dailySessions = 0;
+      state.stats.dailyFocusMinutes = 0;
+      state.stats.lastKpiResetDate = todayForKpi;
+    }
+    state.stats.dailySessions = (state.stats.dailySessions || 0) + 1;
+    state.stats.dailyFocusMinutes = (state.stats.dailyFocusMinutes || 0) + mins;
     state.session.sessionsCompleted = (state.session.sessionsCompleted || 0) + 1;
 
     // Daily pips: track completed sessions today (resets at midnight)
@@ -123,7 +136,8 @@ async function handleSessionComplete(state) {
     state.session.mode = 'break';
     state.session.startTime = Date.now();
     const round = state.session.sessionsCompleted % 4 || 4;
-    broadcast({ type: 'TOAST', emoji: '✓', title: `Round ${round}/4 done`, sub: `${mins}m focused · ${state.session.breakDuration}m break starting` });
+    broadcastToTabs({ type: 'TAB_TOAST', emoji: '✓', title: `Round ${round}/4 done`, sub: `${mins}m focused · ${state.session.breakDuration}m break` });
+    broadcast({ type: 'TOAST', emoji: '✓', title: `Round ${round}/4 done`, sub: `${mins}m focused · ${state.session.breakDuration}m break` });
 
   } else {
     const completed = state.session.sessionsCompleted || 0;
@@ -132,10 +146,12 @@ async function handleSessionComplete(state) {
       state.session.mode = 'focus';
       state.session.startTime = null;
       state.session.sessionsCompleted = 0;
+      broadcastToTabs({ type: 'TAB_TOAST', emoji: '🎉', title: 'Cycle complete!', sub: 'You finished 4 sessions. Great work!' });
       broadcast({ type: 'TOAST', emoji: '🎉', title: 'Cycle complete!', sub: 'You finished 4 sessions. Great work!' });
     } else {
       state.session.mode = 'focus';
       state.session.startTime = Date.now();
+      broadcastToTabs({ type: 'TAB_TOAST', emoji: '▶', title: 'Break over', sub: `Session ${(completed % 4) + 1}/4 starting` });
       broadcast({ type: 'TOAST', emoji: '▶', title: 'Break over', sub: `Session ${(completed % 4) + 1}/4 starting` });
     }
   }
@@ -187,10 +203,13 @@ async function handle(msg) {
 
   switch (msg.type) {
     case 'GET_STATE': {
-      // Attach visual streak and daily pips
       const today = dateKey();
-      if (state.stats.lastPipsResetDate !== today) {
-        state.stats.pipsCompleted = 0;
+      // Visual pip reset
+      if (state.stats.lastPipsResetDate !== today) state.stats.pipsCompleted = 0;
+      // Visual daily KPI reset (read-only — don't write back)
+      if (state.stats.lastKpiResetDate !== today) {
+        state.stats.dailySessions = 0;
+        state.stats.dailyFocusMinutes = 0;
       }
       state.stats.streakDays = await getVisualStreak();
       return state;

@@ -261,10 +261,9 @@ function startDataPoll() {
     state = fresh;
     // Always re-render screen time (changes most often)
     renderScreenTime();
-    // Re-render stats if they changed
     renderStats();
-    // Re-render focus ring and session bar too
     renderTimerDisplay();
+    renderDoomscrollLock();
   }, 3000);
 }
 
@@ -406,6 +405,28 @@ function renderBlockerTab() {
   if (bt) bt.checked = state.blockingEnabled || false;
   renderBlockerStatus();
   renderSiteList();
+  // Disable doomscroll settings during active punishment
+  renderDoomscrollLock();
+}
+
+function renderDoomscrollLock() {
+  const blocked = state.doomscroll?.blocked || {};
+  const isBlocked = Object.values(blocked).some(b => b.blockedUntil > Date.now());
+  const doomCard = document.querySelector('#panel-blocker .card:last-of-type');
+  if (!doomCard) return;
+  doomCard.style.opacity = isBlocked ? '0.45' : '1';
+  doomCard.style.pointerEvents = isBlocked ? 'none' : '';
+  // Show/hide lock notice
+  let notice = document.getElementById('doom-lock-notice');
+  if (isBlocked && !notice) {
+    notice = document.createElement('p');
+    notice.id = 'doom-lock-notice';
+    notice.style.cssText = 'font-size:11px;color:#E07B2A;font-weight:500;padding:6px 16px 0;text-align:center;';
+    notice.textContent = '⏸ Settings locked during punishment';
+    doomCard.insertBefore(notice, doomCard.firstChild);
+  } else if (!isBlocked && notice) {
+    notice.remove();
+  }
 }
 
 function renderBlockerStatus() {
@@ -644,6 +665,10 @@ function renderWeekChart() {
   // Week total footer
   const wtEl = el('week-total');
   if (wtEl) wtEl.textContent = fmtDur(weekTotal);
+  // Average daily screen time (only count days with data)
+  const daysWithData = data.filter(d => d.total > 0).length;
+  const avgEl = el('week-avg');
+  if (avgEl) avgEl.textContent = daysWithData > 0 ? fmtDur(Math.round(weekTotal / daysWithData)) + '/day avg' : '—';
 
   // One shared tooltip — appended to the container (.week-bars) itself
   // so left:% positions are relative to the chart width, not the card.
@@ -705,10 +730,13 @@ function renderWeekChart() {
 function renderStats() {
   const st = state.stats;
   const totalMin = st.totalFocusMinutes || 0;
-  const streak = st.streakDays || 0;
+  const streak   = st.streakDays || 0;
+  // KPI cards: today only
+  const dailySess = st.dailySessions || 0;
+  const dailyMin  = st.dailyFocusMinutes || 0;
 
-  el('k-sessions').textContent = st.totalSessions || 0;
-  el('k-hours').textContent = totalMin >= 60 ? Math.floor(totalMin/60) + 'h' : totalMin + 'm';
+  el('k-sessions').textContent = dailySess;
+  el('k-hours').textContent = dailyMin >= 60 ? Math.floor(dailyMin/60) + 'h' : dailyMin + 'm';
   el('k-streak').textContent = streak;
 
   el('r-focus').textContent = fmtDur(totalMin * 60);

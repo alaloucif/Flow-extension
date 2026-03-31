@@ -100,7 +100,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (elapsed >= durationSec) {
     await handleSessionComplete(state);
   } else {
-    broadcast({ type: 'TICK', elapsed, durationSec, mode: state.session.mode });
+    broadcast({ type: 'TICK', elapsed, durationSec, mode: state.session.mode, session: state.session });
+    broadcastToTabs({ type: 'TICK', elapsed, durationSec, mode: state.session.mode, session: state.session });
   }
 });
 
@@ -158,6 +159,7 @@ async function handleSessionComplete(state) {
 
   await setState(state);
   broadcast({ type: 'SESSION_UPDATE', session: state.session, stats: state.stats });
+  broadcastToTabs({ type: 'SESSION_UPDATE', session: state.session });
 }
 
 // ── STREAK (chrome.storage.sync) ──────────────────────
@@ -204,9 +206,13 @@ async function handle(msg) {
   switch (msg.type) {
     case 'GET_STATE': {
       const today = dateKey();
+      // Migrate old states missing daily fields
+      if (state.stats.dailySessions === undefined) state.stats.dailySessions = 0;
+      if (state.stats.dailyFocusMinutes === undefined) state.stats.dailyFocusMinutes = 0;
+      if (!state.stats.lastKpiResetDate) state.stats.lastKpiResetDate = today;
       // Visual pip reset
       if (state.stats.lastPipsResetDate !== today) state.stats.pipsCompleted = 0;
-      // Visual daily KPI reset (read-only — don't write back)
+      // Visual daily KPI reset (read-only — don't persist here)
       if (state.stats.lastKpiResetDate !== today) {
         state.stats.dailySessions = 0;
         state.stats.dailyFocusMinutes = 0;

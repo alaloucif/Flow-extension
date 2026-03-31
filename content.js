@@ -266,14 +266,20 @@ function showTabToast(emoji, title, sub) {
 // ── MESSAGE LISTENER ─────────────────────────────────
 chrome.runtime.onMessage.addListener(msg => {
   if (msg.type === 'SESSION_STARTED' || msg.type === 'SESSION_UPDATE') {
-    if (msg.session) { session = msg.session; showFloat(); }
+    if (msg.session) {
+      const wasActive = session?.active;
+      session = msg.session;
+      if (msg.session.active) showFloat();
+      else if (!msg.session.active && wasActive) hideFloat();
+      else updateFloat(); // mode changed (focus→break or break→focus)
+    }
   }
   if (msg.type === 'SESSION_ENDED') { session = null; hideFloat(); }
-  if (msg.type === 'TICK' && msg.session) {
-    session = msg.session;
+  if (msg.type === 'TICK') {
+    // TICK carries session so we always have fresh mode/startTime
+    if (msg.session) session = msg.session;
     updateFloat();
   }
-  // Toast banner on all tabs
   if (msg.type === 'TAB_TOAST') {
     showTabToast(msg.emoji, msg.title, msg.sub);
   }

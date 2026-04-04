@@ -58,20 +58,31 @@ const flushScreen = () => {
 };
 window.addEventListener('beforeunload', flushScreen);
 window.addEventListener('pagehide', flushScreen);
-document.addEventListener('visibilitychange', () => { if (document.hidden) flushScreen(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    flushScreen();
+    // Hide float while tab is in background (performance)
+    if (floatEl) floatEl.style.display = 'none';
+  } else {
+    // Restore float when tab becomes active again
+    if (floatEl) floatEl.style.display = '';
+    else if (session?.active) showFloat();
+  }
+});
 
 // ── DOOMSCROLL ───────────────────────────────────────
 if (isSocial) {
   let doomSecs = 0, scrolling = false, scrollTimer = null, doomBlocked = false;
 
   setInterval(() => { if (!document.hidden && scrolling && !doomBlocked) doomSecs += 1; }, 1000);
+  // Flush every 2 seconds so the limit triggers within ~2s of the threshold
   setInterval(async () => {
     if (doomSecs > 0 && !doomBlocked) {
       const d = doomSecs; doomSecs = 0;
       const resp = await safeSend({ type: 'TRACK_DOOMSCROLL_TIME', domain: hostname, seconds: d });
       if (resp && resp.exceeded) { doomBlocked = true; await safeSend({ type: 'DOOMSCROLL_EXCEEDED', domain: hostname }); }
     }
-  }, 10000);
+  }, 2000);
 
   function onScroll() {
     if (doomBlocked) return;
@@ -116,6 +127,8 @@ async function initFloat() {
 }
 
 function showFloat() {
+  // Only render float on the active (visible) tab
+  if (document.hidden) return;
   if (floatEl) { updateFloat(); return; }
   floatEl = document.createElement('div');
   floatEl.id = '__flow_float__';
@@ -203,6 +216,8 @@ function updateFloat() {
 
 // ── TOAST BANNER — shown on any active tab when session phase changes ──
 function showTabToast(emoji, title, sub) {
+  // Only show toast on the currently visible tab
+  if (document.hidden) return;
   const existing = document.getElementById('__flow_toast__');
   if (existing) existing.remove();
 

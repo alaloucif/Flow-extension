@@ -18,6 +18,8 @@ const DEFAULT_STATE = {
     breakDuration: 5,
     sessionsCompleted: 0,
     strictMode: false,
+    paused: false,
+    pausedAt: null,
   },
   blocklist: [
     'youtube.com','twitter.com','x.com','instagram.com',
@@ -96,6 +98,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   const durationSec = state.session.mode === 'focus'
     ? state.session.focusDuration * 60
     : state.session.breakDuration * 60;
+
+  // Freeze timer while paused
+  if (state.session.paused) return;
 
   if (elapsed >= durationSec) {
     await handleSessionComplete(state);
@@ -367,6 +372,15 @@ async function handle(msg) {
           chrome.tabs.sendMessage(tab.id, { type: 'FLUSH_NOW' }).catch(() => null)
         ));
       } catch {}
+      return { ok: true };
+
+    case 'SET_PAUSE':
+      state.session.paused    = msg.paused;
+      state.session.pausedAt  = msg.pausedAt || null;
+      if (msg.startTime) state.session.startTime = msg.startTime;
+      await setState(state);
+      broadcast({ type: 'SESSION_UPDATE', session: state.session, stats: state.stats });
+      broadcastToTabs({ type: 'SESSION_UPDATE', session: state.session });
       return { ok: true };
 
     case 'SAVE_PREFERENCES':

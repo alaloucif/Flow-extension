@@ -109,6 +109,7 @@ function wire() {
   // Focus
   document.getElementById('btn-start').addEventListener('click', startSession);
   document.getElementById('btn-stop').addEventListener('click', stopSession);
+  document.getElementById('btn-pause').addEventListener('click', togglePause);
   // Focus & Break sliders
   setupSlider('focus-slider',  'focus-fill',   'focus-tooltip',   'focus-val',   'focus-ticks',
     [5,15,25,45,60,90,120], v => {
@@ -177,6 +178,19 @@ function renderFocus() {
 
   el('btn-start').classList.toggle('hidden', active);
   el('btn-stop').classList.toggle('hidden', !active || s.strictMode);
+  // Pause button: visible during active session (focus or break), not in strict focus
+  const showPause = active && !(s.mode === 'focus' && s.strictMode);
+  el('btn-pause').classList.toggle('hidden', !showPause);
+  // Update pause icon based on paused state
+  const pauseBtn = el('btn-pause');
+  if (pauseBtn && showPause) {
+    pauseBtn.innerHTML = s.paused
+      ? '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 2L12 7L3 12V2Z" fill="currentColor"/></svg>'
+      : '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2" y="1.5" width="3.5" height="11" rx="1.2" fill="currentColor"/><rect x="8.5" y="1.5" width="3.5" height="11" rx="1.2" fill="currentColor"/></svg>';
+    pauseBtn.style.background = s.paused ? 'var(--blue-pale)' : '';
+    pauseBtn.style.borderColor = s.paused ? 'var(--blue-mid)' : '';
+    pauseBtn.style.color = s.paused ? 'var(--blue-deep)' : '';
+  }
   const strictEl = el('strict-toggle');
   if (strictEl) { strictEl.checked = s.strictMode; strictEl.disabled = active; }
   const fv = el('focus-val'); if (fv) fv.textContent = localFocus;
@@ -273,6 +287,23 @@ async function startSession() {
   state = await bg({ type: 'GET_STATE' });
   renderFocus();
   renderBlockerStatus();
+}
+
+async function togglePause() {
+  if (!state.session.active) return;
+  if (state.session.paused) {
+    // Resume: shift startTime forward by paused duration
+    const pausedDuration = Date.now() - (state.session.pausedAt || Date.now());
+    state.session.startTime = (state.session.startTime || Date.now()) + pausedDuration;
+    state.session.paused = false;
+    state.session.pausedAt = null;
+  } else {
+    state.session.paused = true;
+    state.session.pausedAt = Date.now();
+  }
+  await bg({ type: 'SET_PAUSE', paused: state.session.paused, pausedAt: state.session.pausedAt, startTime: state.session.startTime });
+  state = await bg({ type: 'GET_STATE' });
+  renderFocus();
 }
 
 async function stopSession() {

@@ -943,3 +943,22 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Pause icon button next to session buttons */
+.btn-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+  box-shadow: 0 1px 4px rgba(63,109,133,0.10);
+}
+.btn-icon:hover  { background: var(--blue-pale); border-color: var(--blue-mid); color: var(--blue-deep); }
+.btn-icon:active { transform: scale(0.92); }

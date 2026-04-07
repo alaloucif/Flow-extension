@@ -232,7 +232,9 @@ function renderTimerDisplay() {
   let progress = 0, remaining;
 
   if (s.active && s.startTime) {
-    const elapsed = Math.floor((Date.now() - s.startTime) / 1000);
+    // When paused, freeze at the moment pause was triggered
+    const now     = (s.paused && s.pausedAt) ? s.pausedAt : Date.now();
+    const elapsed = Math.floor((now - s.startTime) / 1000);
     const total   = s.mode === 'focus' ? localFocus * 60 : localBreak * 60;
     remaining = Math.max(0, total - elapsed);
     progress  = Math.min(1, elapsed / total);

@@ -165,6 +165,7 @@ async function handleSessionComplete(state) {
   await setState(state);
   broadcast({ type: 'SESSION_UPDATE', session: state.session, stats: state.stats });
   broadcastToTabs({ type: 'SESSION_UPDATE', session: state.session });
+  broadcast({ type: 'DING' }); // trigger sound in popup
 }
 
 // ── STREAK (chrome.storage.sync) ──────────────────────
@@ -227,21 +228,25 @@ async function handle(msg) {
     }
 
     case 'START_SESSION':
-      state.session.active = true;
-      state.session.mode = 'focus';
-      state.session.startTime = Date.now();
-      state.session.focusDuration = msg.focusDuration ?? 25;
-      state.session.breakDuration = msg.breakDuration ?? 5;
-      state.session.strictMode = msg.strictMode ?? false;
+      state.session.active        = true;
+      state.session.mode          = 'focus';
+      state.session.startTime     = Date.now();
+      state.session.focusDuration = msg.focusDuration ?? state.preferences?.focusDuration ?? 25;
+      state.session.breakDuration = msg.breakDuration ?? state.preferences?.breakDuration ?? 5;
+      state.session.strictMode    = msg.strictMode ?? false;
+      state.session.paused        = false;
+      state.session.pausedAt      = null;
       await setState(state);
       broadcastToTabs({ type: 'SESSION_STARTED', session: state.session });
       return { ok: true };
 
     case 'STOP_SESSION':
       if (state.session.strictMode) return { error: 'Strict Mode is active.' };
-      state.session.active = false;
-      state.session.mode = 'focus';
+      state.session.active    = false;
+      state.session.mode      = 'focus';
       state.session.startTime = null;
+      state.session.paused    = false;
+      state.session.pausedAt  = null;
       await setState(state);
       broadcastToTabs({ type: 'SESSION_ENDED' });
       return { ok: true };
@@ -374,14 +379,25 @@ async function handle(msg) {
       } catch {}
       return { ok: true };
 
-    case 'SET_PAUSE':
-      state.session.paused    = msg.paused;
-      state.session.pausedAt  = msg.pausedAt || null;
-      if (msg.startTime) state.session.startTime = msg.startTime;
+    case 'SET_PAUSE': {
+      if (msg.paused) {
+        // Pausing: record the moment
+        state.session.paused   = true;
+        state.session.pausedAt = Date.now();
+      } else {
+        // Resuming: shift startTime forward so elapsed stays frozen
+        if (state.session.pausedAt) {
+          const frozenMs = Date.now() - state.session.pausedAt;
+          state.session.startTime = (state.session.startTime || Date.now()) + frozenMs;
+        }
+        state.session.paused   = false;
+        state.session.pausedAt = null;
+      }
       await setState(state);
       broadcast({ type: 'SESSION_UPDATE', session: state.session, stats: state.stats });
       broadcastToTabs({ type: 'SESSION_UPDATE', session: state.session });
       return { ok: true };
+    }
 
     case 'SAVE_PREFERENCES':
       state.preferences = { ...state.preferences, ...msg.preferences };

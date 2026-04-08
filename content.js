@@ -202,7 +202,9 @@ function hideFloat() {
 function updateFloat() {
   if (!shadow || !session) return;
   const s = session;
-  const elapsed = s.startTime ? Math.floor((Date.now() - s.startTime) / 1000) : 0;
+  // Freeze elapsed when paused — use pausedAt as the reference point
+  const now     = (s.paused && s.pausedAt) ? s.pausedAt : Date.now();
+  const elapsed = s.startTime ? Math.floor((now - s.startTime) / 1000) : 0;
   const total   = (s.mode === 'focus' ? s.focusDuration : s.breakDuration) * 60;
   const rem     = Math.max(0, total - elapsed);
   const isBreak = s.mode === 'break';

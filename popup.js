@@ -34,6 +34,10 @@ function onBgMessage(msg) {
     showToast(msg.emoji, msg.title, msg.sub);
     return;
   }
+  if (msg.type === 'DING') {
+    playDing();
+    return;
+  }
   if (msg.type === 'SESSION_UPDATE') {
     state.session = msg.session;
     if (msg.stats) state.stats = msg.stats;
@@ -293,17 +297,8 @@ async function startSession() {
 
 async function togglePause() {
   if (!state.session.active) return;
-  if (state.session.paused) {
-    // Resume: shift startTime forward by paused duration
-    const pausedDuration = Date.now() - (state.session.pausedAt || Date.now());
-    state.session.startTime = (state.session.startTime || Date.now()) + pausedDuration;
-    state.session.paused = false;
-    state.session.pausedAt = null;
-  } else {
-    state.session.paused = true;
-    state.session.pausedAt = Date.now();
-  }
-  await bg({ type: 'SET_PAUSE', paused: state.session.paused, pausedAt: state.session.pausedAt, startTime: state.session.startTime });
+  const shouldPause = !state.session.paused;
+  await bg({ type: 'SET_PAUSE', paused: shouldPause });
   state = await bg({ type: 'GET_STATE' });
   renderFocus();
 }
@@ -813,6 +808,29 @@ async function resetData() {
 }
 
 
+
+// ── DING SOUND ────────────────────────────────────────
+function playDing() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);          // A5 — clear, pleasant
+    osc.frequency.exponentialRampToValueAtTime(660, ctx.currentTime + 0.15); // fall to E5
+
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.01); // quick attack
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.6); // gentle decay
+
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.6);
+    osc.onended = () => ctx.close();
+  } catch (e) {}
+}
 
 // ── TOAST NOTIFICATION ────────────────────────────────
 let toastTimer = null;

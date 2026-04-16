@@ -66,6 +66,12 @@ body {
 * { scrollbar-width: none; -ms-overflow-style: none; }
 *::-webkit-scrollbar { display: none; }
 
+/* Suppress ALL transitions on initial load to prevent jank when popup opens */
+.no-transition, .no-transition * {
+  transition: none !important;
+  animation: none !important;
+}
+
 /* ── HEADER ────────────────────────────── */
 .header {
   display: flex;

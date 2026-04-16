@@ -6,6 +6,9 @@ let tickLoop = null;
 
 // ── BOOT ──────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
+  // Suppress transitions during initial render to prevent visual jank on open
+  document.body.classList.add('no-transition');
+
   // 1. Tell all social-media tabs to flush pending screen time NOW
   //    before we read state, so the popup sees fresh data immediately.
   await bg({ type: 'FLUSH_TABS' });
@@ -27,6 +30,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   startDataPoll();   // keep all data fresh while popup is open
 
   chrome.runtime.onMessage.addListener(onBgMessage);
+
+  // Re-enable transitions after first render is fully painted
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.body.classList.remove('no-transition');
+  }));
 });
 
 function onBgMessage(msg) {

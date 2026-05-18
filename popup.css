@@ -1079,3 +1079,20 @@ body {
   color: var(--blue-deep);
 }
 .focus-task-bar span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Tasks client ID input */
+.tasks-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 12px;
+  color: var(--text-1);
+  background: var(--surface);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.tasks-input:focus { border-color: var(--blue-mid); }
+.tasks-input::placeholder { color: var(--text-3); }

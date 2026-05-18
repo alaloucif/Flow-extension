@@ -953,132 +953,166 @@ let taskState = {
   activeTaskListId: null,
 };
 
-// Load from cache and render
 async function initTasks() {
-  const cache = await loadTaskCache();
+  const clientId = await getClientId();
+  if (!clientId) return; // No setup yet
+  const cache  = await loadTaskCache();
   const active = await loadTaskActive();
   if (active) { taskState.activeTask = active.task; taskState.activeTaskListId = active.listId; }
-  if (!cache) { taskState.connected = false; return; }
+  if (!cache) return;
   taskState.connected    = true;
   taskState.lists        = cache.lists || [];
   taskState.tasks        = cache.tasks || [];
-  taskState.activeListId = cache.activeListId || (taskState.lists[0]?.id);
-  // Try silent token refresh to confirm still connected
-  try { await tasksGetToken(false); } catch { taskState.connected = false; }
+  taskState.activeListId = cache.activeListId || taskState.lists[0]?.id;
 }
 
-// Called when Tasks tab is opened
 async function renderTasksTab() {
-  if (!taskState.connected) {
-    showView('tasks-connect-view'); return;
+  const clientId = await getClientId();
+  if (!clientId) {
+    showTasksView('tasks-setup-view');
+    wireSetupButtons();
+    return;
   }
-  showView('tasks-main-view');
+  if (!taskState.connected) {
+    showTasksView('tasks-connect-view');
+    wireConnectButtons();
+    return;
+  }
+  showTasksView('tasks-main-view');
+  renderListSelect();
   renderTasksList();
   renderActiveTask();
-  // Wire buttons (idempotent)
-  wireTasksButtons();
-  // Load fresh from API in background
+  wireMainButtons();
   refreshTasksData(false);
 }
 
-function showView(id) {
-  el('tasks-connect-view').classList.toggle('hidden', id !== 'tasks-connect-view');
-  el('tasks-main-view').classList.toggle('hidden', id !== 'tasks-main-view');
+function showTasksView(id) {
+  ['tasks-setup-view','tasks-connect-view','tasks-main-view'].forEach(v => {
+    const el2 = el(v);
+    if (el2) el2.classList.toggle('hidden', v !== id);
+  });
 }
 
-function wireTasksButtons() {
+// ── SETUP WIZARD ──────────────────────────────────────
+function wireSetupButtons() {
+  const saveBtn = el('btn-save-client-id');
+  if (saveBtn && !saveBtn._wired) {
+    saveBtn._wired = true;
+    saveBtn.addEventListener('click', async () => {
+      const input = el('tasks-client-id-input');
+      const errEl = el('tasks-setup-error');
+      const val   = (input?.value || '').trim();
+      if (!val || !val.includes('.apps.googleusercontent.com')) {
+        if (errEl) { errEl.textContent = 'Please paste a valid Client ID ending in .apps.googleusercontent.com'; errEl.style.display = ''; }
+        return;
+      }
+      await saveClientId(val);
+      if (errEl) errEl.style.display = 'none';
+      // Try to connect immediately
+      showTasksView('tasks-connect-view');
+      wireConnectButtons();
+    });
+  }
+  const link = el('tasks-setup-link');
+  if (link && !link._wired) {
+    link._wired = true;
+    link.addEventListener('click', e => {
+      e.preventDefault();
+      chrome.tabs.create({ url: 'https://console.cloud.google.com/apis/credentials' });
+    });
+  }
+}
+
+function wireConnectButtons() {
   const btn = el('btn-connect-tasks');
   if (btn && !btn._wired) {
     btn._wired = true;
     btn.addEventListener('click', connectTasks);
   }
-  const disc = el('btn-disconnect-tasks');
-  if (disc && !disc._wired) {
-    disc._wired = true;
-    disc.addEventListener('click', disconnectTasks);
-  }
-  const ref = el('btn-refresh-tasks');
-  if (ref && !ref._wired) {
-    ref._wired = true;
-    ref.addEventListener('click', () => refreshTasksData(true));
-  }
-  const sel = el('task-list-select');
-  if (sel && !sel._wired) {
-    sel._wired = true;
-    sel.addEventListener('change', async () => {
-      taskState.activeListId = sel.value;
-      await saveTaskCache(taskState.lists, [], taskState.activeListId);
-      refreshTasksData(true);
+  const reset = el('btn-reset-client-id');
+  if (reset && !reset._wired) {
+    reset._wired = true;
+    reset.addEventListener('click', async () => {
+      await chrome.storage.local.remove('gtasks_client_id');
+      showTasksView('tasks-setup-view');
+      wireSetupButtons();
     });
   }
-  const done = el('btn-complete-task');
-  if (done && !done._wired) {
-    done._wired = true;
-    done.addEventListener('click', completeActiveTask);
-  }
 }
 
+// ── CONNECT ───────────────────────────────────────────
 async function connectTasks() {
   const btn = el('btn-connect-tasks');
-  btn.textContent = 'Connecting…'; btn.disabled = true;
+  if (btn) { btn.textContent = 'Connecting…'; btn.disabled = true; }
   try {
-    await tasksGetToken(true);
+    await tasksAuth(true);
     taskState.connected = true;
     await refreshTasksData(true);
-    renderTasksTab();
+    showTasksView('tasks-main-view');
+    wireMainButtons();
+    renderListSelect();
+    renderTasksList();
+    renderActiveTask();
   } catch (e) {
-    btn.textContent = 'Connect Google Tasks'; btn.disabled = false;
-    showToast('⚠️', 'Connection failed', 'Make sure you approve access in the popup');
+    if (btn) { btn.textContent = 'Connect Google Tasks'; btn.disabled = false; }
+    const msg = e.includes?.('ERR_BLOCKED') || e.includes?.('Access blocked')
+      ? 'App not verified — add your email as a Test User in Google Cloud Console'
+      : e || 'Could not connect. Check your Client ID and try again.';
+    showToast('⚠️', 'Connection failed', msg);
   }
 }
 
+// ── DISCONNECT ────────────────────────────────────────
 async function disconnectTasks() {
-  if (!confirm('Disconnect Google Tasks?')) return;
+  if (!confirm('Disconnect Google Tasks? Your Client ID will be kept.')) return;
   await tasksRevokeToken();
   taskState = { connected: false, lists: [], tasks: [], activeListId: null, activeTask: null, activeTaskListId: null };
-  await chrome.storage.local.remove(['gtasks_cache', 'gtasks_active']);
-  renderTasksTab();
+  renderFocusTaskBar();
+  showTasksView('tasks-connect-view');
+  wireConnectButtons();
 }
 
+// ── REFRESH ───────────────────────────────────────────
 async function refreshTasksData(showSpinner) {
   const ref = el('btn-refresh-tasks');
   if (showSpinner && ref) ref.classList.add('spinning');
   try {
-    const lists = await tasksApiFetch(`https://www.googleapis.com/tasks/v1/users/@me/lists?maxResults=20`);
-    taskState.lists = (lists.items || []);
+    const listsData = await tasksApiFetch(`${TASKS_BASE}/users/@me/lists?maxResults=20`);
+    taskState.lists = listsData.items || [];
     if (!taskState.activeListId && taskState.lists.length) taskState.activeListId = taskState.lists[0].id;
-    const tasks = await tasksApiFetch(`https://www.googleapis.com/tasks/v1/lists/${taskState.activeListId}/tasks?showCompleted=false&maxResults=30`);
-    taskState.tasks = (tasks.items || []).filter(t => t.status !== 'completed');
+    const tasksData = await tasksApiFetch(`${TASKS_BASE}/lists/${taskState.activeListId}/tasks?showCompleted=false&maxResults=40`);
+    taskState.tasks = (tasksData.items || []).filter(t => t.status !== 'completed');
     await saveTaskCache(taskState.lists, taskState.tasks, taskState.activeListId);
     renderListSelect();
     renderTasksList();
   } catch (e) {
-    if (showSpinner) showToast('⚠️', 'Tasks error', e.message || 'Could not load tasks');
+    if (showSpinner) showToast('⚠️', 'Tasks error', String(e));
   } finally {
     if (ref) ref.classList.remove('spinning');
   }
 }
 
+// ── RENDER ────────────────────────────────────────────
 function renderListSelect() {
   const sel = el('task-list-select');
   if (!sel) return;
   sel.innerHTML = '';
   taskState.lists.forEach(list => {
     const opt = document.createElement('option');
-    opt.value = list.id;
-    opt.textContent = list.title;
+    opt.value = list.id; opt.textContent = list.title;
     opt.selected = list.id === taskState.activeListId;
     sel.appendChild(opt);
   });
 }
 
 function renderTasksList() {
-  const ul = el('task-list-ul');
+  const ul      = el('task-list-ul');
   const loading = el('tasks-loading');
   if (!ul) return;
   ul.innerHTML = '';
-  if (taskState.tasks.length === 0) {
-    if (loading) { loading.style.display = 'block'; loading.textContent = 'No tasks — great job! 🎉'; } return;
+  if (!taskState.tasks.length) {
+    if (loading) { loading.style.display = 'block'; loading.textContent = '🎉 No open tasks — great job!'; }
+    return;
   }
   if (loading) loading.style.display = 'none';
   taskState.tasks.forEach(task => {
@@ -1113,6 +1147,7 @@ function renderFocusTaskBar() {
     bar.className = 'focus-task-bar';
     const timerStage = document.querySelector('.timer-stage');
     if (timerStage) timerStage.after(bar);
+    else document.querySelector('#panel-focus')?.prepend(bar);
   }
   bar.innerHTML = `<span>🎯 ${escHtml(taskState.activeTask.title)}</span>`;
 }
@@ -1123,89 +1158,48 @@ async function selectTask(task) {
   await saveTaskActive(task, taskState.activeListId);
   renderActiveTask();
   renderFocusTaskBar();
-  showToast('🎯', 'Task selected', task.title);
+  showToast('🎯', 'Task set', task.title);
 }
 
 async function completeActiveTask() {
   if (!taskState.activeTask) return;
   const btn = el('btn-complete-task');
-  if (btn) { btn.textContent = 'Completing…'; btn.disabled = true; }
+  if (btn) { btn.textContent = '…'; btn.disabled = true; }
   try {
     await tasksApiFetch(
-      `https://www.googleapis.com/tasks/v1/lists/${taskState.activeTaskListId}/tasks/${taskState.activeTask.id}`,
+      `${TASKS_BASE}/lists/${taskState.activeTaskListId}/tasks/${taskState.activeTask.id}`,
       { method: 'PATCH', body: JSON.stringify({ status: 'completed', completed: new Date().toISOString() }) }
     );
-    showToast('✅', 'Task completed!', taskState.activeTask.title);
-    taskState.activeTask       = null;
-    taskState.activeTaskListId = null;
+    const title = taskState.activeTask.title;
+    taskState.tasks = taskState.tasks.filter(t => t.id !== taskState.activeTask.id);
+    taskState.activeTask = null; taskState.activeTaskListId = null;
     await saveTaskActive(null, null);
-    renderActiveTask();
-    renderFocusTaskBar();
-    // Remove from local list
-    taskState.tasks = taskState.tasks.filter(t => t.id !== taskState.activeTask?.id);
-    renderTasksList();
+    renderActiveTask(); renderFocusTaskBar(); renderTasksList();
+    showToast('✅', 'Task completed!', title);
   } catch (e) {
-    showToast('⚠️', 'Could not complete task', 'Try again or check connection');
+    showToast('⚠️', 'Could not complete', String(e));
   } finally {
     if (btn) { btn.textContent = 'Done'; btn.disabled = false; }
   }
 }
 
-// ── Tasks API helpers ──────────────────────────────
-async function tasksGetToken(interactive) {
-  return new Promise((resolve, reject) => {
-    chrome.identity.getAuthToken({ interactive }, token => {
-      if (chrome.runtime.lastError || !token) reject(chrome.runtime.lastError?.message || 'No token');
-      else resolve(token);
+function wireMainButtons() {
+  const disc = el('btn-disconnect-tasks');
+  if (disc && !disc._wired) { disc._wired = true; disc.addEventListener('click', disconnectTasks); }
+  const ref = el('btn-refresh-tasks');
+  if (ref && !ref._wired) { ref._wired = true; ref.addEventListener('click', () => refreshTasksData(true)); }
+  const sel = el('task-list-select');
+  if (sel && !sel._wired) {
+    sel._wired = true;
+    sel.addEventListener('change', async () => {
+      taskState.activeListId = sel.value;
+      await saveTaskCache(taskState.lists, [], taskState.activeListId);
+      refreshTasksData(true);
     });
-  });
-}
-
-async function tasksRevokeToken() {
-  return new Promise(resolve => {
-    chrome.identity.getAuthToken({ interactive: false }, token => {
-      if (!token) return resolve();
-      chrome.identity.removeCachedAuthToken({ token }, () =>
-        fetch(`https://accounts.google.com/o/oauth2/revoke?token=${token}`).finally(resolve)
-      );
-    });
-  });
-}
-
-async function tasksApiFetch(url, options = {}, retry = true) {
-  let token;
-  try { token = await tasksGetToken(false); } catch { throw new Error('Not authenticated'); }
-  const res = await fetch(url, {
-    ...options,
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(options.headers || {}) },
-  });
-  if (res.status === 401 && retry) {
-    await new Promise(r => chrome.identity.removeCachedAuthToken({ token }, r));
-    return tasksApiFetch(url, options, false);
   }
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `HTTP ${res.status}`);
-  }
-  return res.json();
+  const done = el('btn-complete-task');
+  if (done && !done._wired) { done._wired = true; done.addEventListener('click', completeActiveTask); }
 }
 
-// ── Cache helpers ──────────────────────────────────
-async function saveTaskCache(lists, tasks, activeListId) {
-  await chrome.storage.local.set({ gtasks_cache: { lists, tasks, activeListId, ts: Date.now() } });
-}
-async function loadTaskCache() {
-  const { gtasks_cache } = await chrome.storage.local.get('gtasks_cache');
-  return gtasks_cache || null;
-}
-async function saveTaskActive(task, listId) {
-  await chrome.storage.local.set({ gtasks_active: task ? { task, listId } : null });
-}
-async function loadTaskActive() {
-  const { gtasks_active } = await chrome.storage.local.get('gtasks_active');
-  return gtasks_active || null;
-}
-
-function escHtml(str) {
-  return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
+// Expose TASKS_BASE for tasks.js
+const TASKS_BASE = 'https://www.googleapis.com/tasks/v1';

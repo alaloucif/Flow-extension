@@ -287,44 +287,59 @@
   <script src="popup.js"></script>
   <!-- ── TASKS PANEL ── -->
   <section class="panel" id="panel-tasks">
-    <!-- Not connected -->
-    <div id="tasks-connect-view">
-      <div class="card" style="text-align:center;padding:32px 20px 28px">
-        <div style="font-size:32px;margin-bottom:12px">✓</div>
-        <div style="font-size:15px;font-weight:700;color:var(--text-1);margin-bottom:6px">Google Tasks</div>
-        <div style="font-size:12px;color:var(--text-3);margin-bottom:20px;line-height:1.5">Connect your Google Tasks to link a task to each focus session</div>
-        <button class="btn-primary" id="btn-connect-tasks" style="width:100%">Connect Google Tasks</button>
+
+    <!-- STEP 1: No client ID yet — show setup -->
+    <div id="tasks-setup-view" class="hidden">
+      <div class="card" style="padding:20px 16px">
+        <div class="card-tag">One-time Setup</div>
+        <p style="font-size:12px;color:var(--text-2);line-height:1.6;margin:8px 0 14px">
+          To connect Google Tasks you need a free <strong>OAuth Client ID</strong> from Google Cloud Console.
+          <a href="#" id="tasks-setup-link" style="color:var(--blue-deep)">Follow the guide ↗</a>
+        </p>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <input class="tasks-input" id="tasks-client-id-input" type="text" placeholder="Paste your Client ID here…"/>
+          <button class="btn-primary" id="btn-save-client-id" style="width:100%">Save & Connect</button>
+        </div>
+        <p id="tasks-setup-error" style="font-size:11px;color:var(--red);margin-top:8px;display:none"></p>
       </div>
     </div>
 
-    <!-- Connected view -->
+    <!-- STEP 2: Has client ID — connect -->
+    <div id="tasks-connect-view" class="hidden">
+      <div class="card" style="text-align:center;padding:28px 20px 24px">
+        <div style="font-size:28px;margin-bottom:10px">✓</div>
+        <div style="font-size:15px;font-weight:700;color:var(--text-1);margin-bottom:6px">Google Tasks</div>
+        <div style="font-size:12px;color:var(--text-3);margin-bottom:20px;line-height:1.5">Link your tasks to focus sessions and mark them done without leaving Flow</div>
+        <button class="btn-primary" id="btn-connect-tasks" style="width:100%">Connect Google Tasks</button>
+        <button class="tasks-disconnect" id="btn-reset-client-id" style="margin-top:10px">Change Client ID</button>
+      </div>
+    </div>
+
+    <!-- STEP 3: Connected -->
     <div id="tasks-main-view" class="hidden">
-      <!-- Active task -->
       <div class="card" id="active-task-card" style="margin-bottom:0">
         <div class="card-tag">Active Focus Task</div>
-        <div id="active-task-empty" style="font-size:12px;color:var(--text-3);padding:8px 0">No task selected — pick one below</div>
+        <div id="active-task-empty" style="font-size:12px;color:var(--text-3);padding:6px 0">No task selected — pick one below</div>
         <div id="active-task-item" class="hidden task-item task-item-active">
-          <span class="task-check" id="active-task-check">○</span>
+          <span class="task-check">○</span>
           <span class="task-title" id="active-task-title">—</span>
           <button class="task-done-btn" id="btn-complete-task">Done</button>
         </div>
       </div>
 
-      <!-- Task list selector -->
-      <div style="display:flex;align-items:center;gap:8px;padding:12px 0 6px">
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 0 4px">
         <select class="task-list-select" id="task-list-select"></select>
         <button class="btn-icon-sm" id="btn-refresh-tasks" title="Refresh">↺</button>
       </div>
 
-      <!-- Tasks list -->
       <div class="card" style="padding:6px 0">
-        <div id="tasks-loading" style="text-align:center;padding:20px;font-size:12px;color:var(--text-3)">Loading…</div>
+        <div id="tasks-loading" style="text-align:center;padding:16px;font-size:12px;color:var(--text-3)">Loading…</div>
         <ul class="task-list" id="task-list-ul"></ul>
       </div>
 
-      <!-- Disconnect -->
       <button class="tasks-disconnect" id="btn-disconnect-tasks">Disconnect Google Tasks</button>
     </div>
+
   </section>
 
 </body>
